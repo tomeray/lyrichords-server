@@ -1,6 +1,4 @@
 class OutputProcessor:
-    ids_to_chords = {}
-
     def get_id_of_max_value_and_convert_to_chord(self, chords_list: list, ids_to_chords: dict) -> list:
         chords_id_list = list(chords_list.argmax(axis=1))
 
