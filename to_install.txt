@@ -1,0 +1,10 @@
+pip install pydub
+pip install transformers==4.28.0
+pip install nnAudio
+pip install datasets
+pip install -U --no-cache-dir gdown --pre
+pip install --upgrade accelerate
+pip install mutagen
+pip install torch-audiomentations
+pip install flask
+pip install numpy
