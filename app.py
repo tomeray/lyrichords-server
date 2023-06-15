@@ -1,30 +1,31 @@
-from flask import Flask, request
+import torch
+from flask import Flask, request, stream_with_context, json, Response
+from flask_cors import CORS, cross_origin
 from pre_processor import PreProcessor
 from output_parser import OutputProcessor
-import numpy as np
-import random
+
+from ChordClassifier import ChordClassifier
+from transformers import AutoModel
 
 app = Flask(__name__)
+cors = CORS(app)
+app.config['CORS_HEADERS'] = 'Content-Type'
+
 pre_processor = PreProcessor()
 output_parser = OutputProcessor()
 
+NUM_CLASSES = 278
+MODEL_NAME = "m-a-p/MERT-v1-330M"
 
-# create demo prediction - REMOVE AFTER CONNECT MODEL
-def create_model_prediction_demo(rows: int, cols: int) -> np.array:
-    demo_model_prediction = np.empty((rows, cols))
-
-    for i in range(rows):
-        row_sum = 0
-        for j in range(cols):
-            demo_model_prediction[i][j] = random.random()
-            row_sum += demo_model_prediction[i][j]
-
-        for j in range(cols):
-            demo_model_prediction[i][j] /= row_sum
-    return demo_model_prediction
+mert_model = AutoModel.from_pretrained(MODEL_NAME, trust_remote_code=True)
+classifier_model = ChordClassifier(mert_model, 278)
+classifier_model.load_state_dict(
+    torch.load('trained_model/chord_classifier_model_good_save.pt', map_location=torch.device('cpu')))
+classifier_model.eval()
 
 
-@app.route('/predict-audio', methods=['GET'])
+@app.route('/predict-audio', methods=['POST'])
+@cross_origin()
 def predict_audio():
     if 'file' not in request.files:
         return 'No file provided', 400
@@ -34,10 +35,19 @@ def predict_audio():
     if file.filename == '':
         return 'Empty file', 400
 
-    # this will use to the model input
-    segments = pre_processor.split_audio_into_segments(file)
+    preprocessed_segments = pre_processor.preprocess(file)
 
-    # demo prediction - REPLACE WITH REAL MODEL PREDICTION
-    demo_model_prediction = [create_model_prediction_demo(749, 290)] * 5
+    def stream_model_results():
+        with torch.no_grad():
+            yield '['
+            for index, processed_audio_data in enumerate(preprocessed_segments):
+                output = output_parser.process_segment_output(classifier_model(**processed_audio_data)['predictions'], index)
+                print('yielding output ' + str(index))
+                output_json_str = json.dumps(output)[1:-1]
+                if index < len(preprocessed_segments) - 1:
+                    yield output_json_str + ','
+                else:
+                    yield output_json_str
+            yield ']'
 
-    return output_parser.process_output(demo_model_prediction)
+    return Response(stream_with_context(stream_model_results()), content_type='application/json')
